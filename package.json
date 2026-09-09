@@ -146,7 +146,10 @@
 		"webapp": "git checkout gh-pages && git pull && git merge master --no-edit && git push && git checkout master",
 		"generate-types": "tsc --project tsconfig.json && node ./scripts/convert_types.js",
 		"publish-types": "npm publish ./types",
-		"generate-docs": "npm run generate-types && npx typedoc --options typedoc.json"
+		"generate-docs": "npm run generate-types && npx typedoc --options typedoc.json",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "copy:www": "node scripts/copy-blockbench-dist.js"
 	},
 	"overrides": {
 		"three": "$three"
@@ -190,6 +193,8 @@
 	"dependencies": {
 		"@electron/remote": "^2.1.2",
 		"electron-color-picker": "^0.2.0",
-		"electron-updater": "^6.7.3"
+		"electron-updater": "^6.7.3",
+    "@capacitor/android": "^6.0.0",                                                                 "@capacitor/core": "^6.0.0",                                                                    "@capacitor/filesystem": "^6.0.0",                                                              
+    "@capacitor/share": "^6.0.0"
 	}
 }
