@@ -1,0 +1,19 @@
+{
+  "appId": "com.timrpg.blockbenchmobile",
+  "appName": "Blockbench Mobile",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Filesystem": {
+      "iosAppGroupIdentifier": ""
+    }
+  }
+}
