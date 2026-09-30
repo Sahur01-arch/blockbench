@@ -24,6 +24,10 @@ on:
         description: 'Override key alias (kosong = pakai secret KEY_ALIAS)'
         required: false
         default: ''
+      allow_debug_signing:
+        description: 'true = kalau secret keystore belum ada, pakai debug key (testing saja, bukan untuk Play Store)'
+        type: boolean
+        default: false
 
 # Supaya tidak ada dua build APK jalan barengan.
 concurrency:
@@ -32,16 +36,18 @@ concurrency:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    # Pin ke 24.04, bukan `ubuntu-latest`: `ubuntu-latest` sedang diarahkan ke
+    # Ubuntu 26 dan bisa membawa perubahan yang belum teruji untuk build Android.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Node 22 = versi yang sudah dipakai/terverifikasi saat build web lokal.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -65,22 +71,30 @@ jobs:
           fi
           npx cap sync android
 
-      # Gradle 8.2.1 + AGP 8.2.1 butuh JDK 17 (JDK yang lebih baru bisa gagal).
+      # Gradle 8.2.1 + AGP 8.2.1 (dari `npx cap add android`) hanya mendukung
+      # sampai JDK 20, jadi JDK 17 yang dipakai. Jangan naikkan ke 21+ —
+      # Gradle akan gagal dengan "Unsupported class file major version".
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
-      # compileSdk/targetSdk = 34 (android/variables.gradle).
+      # compileSdk/targetSdk = 34 (android/variables.gradle), build-tools 34.0.0
+      # adalah default AGP 8.2.
+      #
+      # PENTING: jangan pernah pakai paket `tools` di sini. Paket legacy itu
+      # sudah dihapus dari repository Google, sehingga sdkmanager keluar dengan
+      # "Warning: Failed to find package 'tools'" + exit code 1 — inilah yang
+      # menggagalkan run sebelumnya. Daftarkan paket satu per satu, dipisah spasi.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # Decode keystore dari secret, validasi via keytool, lalu patch
       # android/app/build.gradle supaya release build ter-sign.
@@ -96,6 +110,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
+          ALLOW_DEBUG_SIGNING: ${{ inputs.allow_debug_signing }}
         run: |
           ARGS=()
           if [ -n "$VERSION_NAME" ]; then
@@ -103,6 +118,9 @@ jobs:
           fi
           if [ -n "$VERSION_CODE" ]; then
             ARGS+=(--version-code "$VERSION_CODE")
+          fi
+          if [ "$ALLOW_DEBUG_SIGNING" = "true" ]; then
+            ARGS+=(--allow-debug-signing)
           fi
           node scripts/setup-android-release.js "${ARGS[@]}"
 
@@ -113,7 +131,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: blockbench-apk
           path: android/app/build/outputs/apk/release/*.apk
