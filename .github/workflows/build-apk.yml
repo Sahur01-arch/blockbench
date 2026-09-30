@@ -124,8 +124,17 @@ jobs:
           fi
           node scripts/setup-android-release.js "${ARGS[@]}"
 
+      # PENTING: env signing harus ada di step INI juga, bukan cuma di step
+      # "Configure release signing". build.gradle membaca kredensial lewat
+      # System.getenv(), dan proses Gradle jalan di step sendiri — kalau env
+      # tidak ikut, hasilnya "SigningConfig \"release\" is missing required
+      # property \"storePassword\"".
       - name: Build release APK
         working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ inputs.key_alias || secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
