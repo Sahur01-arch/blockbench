@@ -1,12 +1,15 @@
 import saveAs from 'file-saver'
 import StateMemory from './util/state_memory'
 import { pathToExtension } from './util/util';
+import { SAF, SAFFileHandle } from './util/saf';
 import { app, currentwindow, electron, fs, ipcRenderer, webUtils } from './native_apis';
 
 function isStreamerMode(): boolean {
 	// @ts-ignore
 	return window.settings.streamer_mode.value;
 }
+
+let saf_fallback = false;
 
 
 export namespace Filesystem {
@@ -107,6 +110,22 @@ export namespace Filesystem {
 				StateMemory.save('dialog_paths')
 			}
 			readFile(fileNames, options, callback)
+		} else if (SAF.isSupported()) {
+			// Use the File System Access API, if available, to let the user pick files
+			// and keep a reference to them on disk
+			let extensions = options.extensions instanceof Array
+				? (options.extensions[0] == 'image/*'
+					? ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'gif', 'webp']
+					: options.extensions)
+				: [];
+			Filesystem.pickFiles({
+				types: Filesystem.getPickerTypes(options.type, extensions),
+				multiple: options.multiple,
+				resource_id: options.resource_id
+			}, async (handles) => {
+				let files = await Promise.all(handles.map(handle => handle.getFile()));
+				readFile(files as unknown as FileList, options, callback);
+			});
 		} else {
 			let isIOS =  ['iPad Simulator', 'iPhone Simulator', 'iPod Simulator', 'iPad', 'iPhone', 'iPod'].includes(navigator.platform) ||
 				(navigator.userAgent.includes("Mac") && "ontouchend" in document);
@@ -144,6 +163,61 @@ export namespace Filesystem {
 	}
 
 	
+	// MARK: Pick Files
+	export interface PickFilesOptions {
+		/**
+		 * File picker filter definitions
+		 */
+		types?: { description?: string, accept: Record<string, string[]> }[]
+		/**
+		 * Allow selection of multiple files
+		 */
+		multiple?: boolean
+		/**
+		 * The resource identifier group, used to allow the file dialog to remember where it was last used
+		 */
+		resource_id?: ResourceID
+	}
+	/**
+	 * Build file picker filter definitions from a list of file extensions.
+	 * Multi-part extensions such as `geo.json` are reduced to their last part, because the
+	 * File System Access API only accepts single alphanumeric extensions.
+	 * @param type Filter description
+	 * @param extensions List of file extensions, without the leading dot
+	 */
+	export function getPickerTypes(type: string | undefined, extensions: string[]) {
+		let suffixes: string[] = []
+		for (let extension of extensions || []) {
+			if (typeof extension != 'string') continue
+			let suffix = extension.replace(/^\./, '').split('.').pop() || ''
+			if (/^[a-z0-9]{1,10}$/i.test(suffix) && !suffixes.includes(suffix)) {
+				suffixes.push(suffix);
+			}
+		}
+		if (!suffixes.length) return undefined
+		return [{
+			description: type || suffixes[0],
+			accept: {['*/*']: suffixes.map(suffix => '.' + suffix)}
+		}]
+	}
+
+	/**
+	 * Open the browser file picker through the File System Access API, so that the selected files
+	 * can be read from and written back to the same location.
+	 * @param options Pick options
+	 * @param callback Callback to run once the files are picked
+	 */
+	export function pickFiles(options: PickFilesOptions = {}, callback?: (handles: SAFFileHandle[]) => void) {
+		if (!SAF.isSupported()) return;
+		SAF.openFiles({
+			types: options.types,
+			multiple: options.multiple,
+			id: options.resource_id
+		}).then(handles => {
+			if (handles) callback?.(handles);
+		})
+	}
+
 	// MARK: Read
 	export function readFile(files: string[] | FileList, options: ReadOptions = {}, callback?: (files: FileResult[]) => void) {
 		if (files == undefined) return false;
@@ -152,6 +226,21 @@ export namespace Filesystem {
 		let results: FileResult[] = [];
 		let result_count = 0;
 		let errant = false;
+		if (!isApp && SAF.isSupported() && typeof files[0] == 'string') {
+			// Read files from the working folder
+			let paths = files as string[];
+			Promise.all(paths.map(file => {
+				let readtype = typeof options.readtype == 'function'
+					? options.readtype(file)
+					: (options.readtype || 'text') as ReadType;
+				return SAF.readFile(file, readtype);
+			})).then(result => {
+				callback?.(result);
+			}).catch(error => {
+				SAF.reportError(error, typeof files[0] == 'string' ? files[0] : undefined);
+			})
+			return [];
+		}
 		if (isApp && files instanceof FileList == false) {
 			if (options.readtype == 'none') {
 				let results = files.map(file => {
@@ -284,9 +373,10 @@ export namespace Filesystem {
 		title?: string
 	}
 	/**
-	 * Pick a directory. Desktop app only.
+	 * Pick a directory. On the web app this requires the File System Access API and resolves
+	 * to the name of the selected folder, because the real path is not exposed to the browser.
 	 */
-	export function pickDirectory(options: PickDirOptions = {}): string | undefined {
+	export function pickDirectory(options: PickDirOptions = {}): string | undefined | Promise<string | undefined> {
 		if (isApp) {
 
 			if (!options.startpath && options.resource_id) {
@@ -309,6 +399,13 @@ export namespace Filesystem {
 			}
 
 			return dirNames[0];
+
+		} else if (SAF.isSupported()) {
+
+			return SAF.pickDirectory({
+				id: options.resource_id,
+				title: options.title
+			})
 
 		} else {
 
@@ -342,6 +439,7 @@ export namespace Filesystem {
 	}
 	/**
 	 * Open a file save dialog to let the user pick a location and name to save a file. On the web app, this might save the file directoy into the downloads folder depending on browser settings.
+	 * If the File System Access API is available, the file is written into the working folder selected by the user.
 	 * @param options Export options
 	 * @param callback Callback to run once the file is saved
 	 * @returns 
@@ -364,36 +462,10 @@ export namespace Filesystem {
 			if (options.extensions instanceof Array && !options.extensions.includes(extension) && options.extensions[0]) {
 				file_name += '.' + options.extensions[0];
 			}
-			if (options.custom_writer) {
-				options.custom_writer(options.content, file_name)
-				
-			} else {
-				let savetype = typeof options.savetype == 'function' ? options.savetype(file_name) : options.savetype;
-
-				if (savetype === 'image' && typeof options.content == 'string') {
-					saveAs(options.content, file_name, {})
-
-				} else if (['zip', 'buffer', 'binary', 'image'].includes(savetype)) {
-					let blob = options.content instanceof Blob
-							 ? options.content
-							 : new Blob([options.content], {type: "octet/stream"});
-					saveAs(blob, file_name)
-
-				} else {
-					let type = 'text/plain;charset=utf-8';
-					if (file_name.endsWith('json')) {
-						type = 'application/json;charset=utf-8';
-					} else if (file_name.endsWith('bbmodel')) {
-						type = 'model/vnd.blockbench.bbmodel';
-					}
-					let blob = new Blob([options.content], {type});
-					saveAs(blob, file_name, {autoBOM: true})
-				}
-
+			if (usesWorkingFolder()) {
+				return writeToWorkingFolder(options, file_name, callback)
 			}
-			if (typeof callback === 'function') {
-				callback(file_name)
-			}
+			downloadFile(options, file_name, callback)
 		} else {
 			if (!options.startpath && options.resource_id) {
 				options.startpath = StateMemory.get('dialog_paths')[options.resource_id]
@@ -426,6 +498,93 @@ export namespace Filesystem {
 		}
 	}
 
+	/**
+	 * Write a file into the working folder selected through the File System Access API.
+	 * If no folder has been selected yet, the user is asked for one.
+	 * @param options Export options
+	 * @param file_name The file name including its extension
+	 * @param callback Callback to run once the file is saved
+	 */
+	async function writeToWorkingFolder(options: ExportOptions, file_name: string, callback?: (file_path: string) => void) {
+		if (!SAF.isActive()) {
+			await new Promise<void>(resolve => Blockbench.showMessageBox({
+				title: 'saf.folder.required.title',
+				icon: 'folder_open',
+				message: tl('saf.folder.required.message'),
+				buttons: ['saf.folder.required.choose', 'saf.folder.required.download', 'dialog.cancel'],
+				confirm: 0,
+				cancel: 2
+			}, async (button) => {
+				if (button == 0) {
+					await SAF.pickDirectory({id: options.resource_id})
+				} else if (button == 1) {
+					// Download instead, but keep the folder for the next session
+					await SAF.detach()
+					saf_fallback = true
+				}
+				resolve()
+			}))
+		}
+		if (saf_fallback) {
+			downloadFile(options, file_name, callback)
+			return
+		}
+		if (!SAF.isActive()) return;
+		let file_path = SAF.getExportPath({
+			name: file_name,
+			startpath: options.startpath,
+			resource_id: options.resource_id
+		})
+		try {
+			if (options.custom_writer) {
+				options.custom_writer(options.content, file_path, callback)
+			} else {
+				await SAF.writeFile(file_path, options)
+				SAF.rememberPath(options.resource_id, file_path)
+				if (typeof callback == 'function') callback(file_path)
+			}
+		} catch (error) {
+			SAF.reportError(error, file_path)
+		}
+	}
+
+	/**
+	 * Save a file through the browser download flow
+	 * @param options Export options
+	 * @param file_name The file name including its extension
+	 * @param callback Callback to run once the file is saved
+	 */
+	function downloadFile(options: ExportOptions, file_name: string, callback?: (file_path: string) => void) {
+		if (options.custom_writer) {
+			options.custom_writer(options.content, file_name)
+		} else {
+			let savetype = typeof options.savetype == 'function' ? options.savetype(file_name) : options.savetype;
+
+			if (savetype === 'image' && typeof options.content == 'string') {
+				saveAs(options.content, file_name, {})
+
+			} else if (['zip', 'buffer', 'binary', 'image'].includes(savetype)) {
+				let blob = options.content instanceof Blob
+						 ? options.content
+						 : new Blob([options.content], {type: "octet/stream"});
+				saveAs(blob, file_name)
+
+			} else {
+				let type = 'text/plain;charset=utf-8';
+				if (file_name.endsWith('json')) {
+					type = 'application/json;charset=utf-8';
+				} else if (file_name.endsWith('bbmodel')) {
+					type = 'model/vnd.blockbench.bbmodel';
+				}
+				let blob = new Blob([options.content], {type});
+				saveAs(blob, file_name, {autoBOM: true})
+			}
+		}
+		if (typeof callback === 'function') {
+			callback(file_name)
+		}
+	}
+
 
 	// MARK: Write
 	type WriteType = 'text' | 'buffer' | 'binary' | 'zip' | 'image'
@@ -435,14 +594,27 @@ export namespace Filesystem {
 		custom_writer?: (content: string | ArrayBuffer | Blob, file_path: string, callback?: (file_path: string) => void) => void
 	}
 	/**
-	 * Writes a file to the file system. Desktop app only.
+	 * Writes a file to the file system. On the web app, this requires a working folder
+	 * selected through the File System Access API.
 	 */
 	export function writeFile(
 		file_path: string,
 		options: WriteOptions,
 		callback?: (file_path: string) => void
 	) {
-		if (!isApp || !file_path) {
+		if (!file_path) {
+			return;
+		}
+		if (!isApp) {
+			if (options.custom_writer) {
+				options.custom_writer(options.content, file_path, callback)
+			} else if (SAF.isActive()) {
+				SAF.writeFile(file_path, options).then(path => {
+					if (callback) callback(path)
+				}).catch(error => {
+					SAF.reportError(error, file_path)
+				})
+			}
 			return;
 		}
 		if (options.savetype === 'image' && typeof options.content === 'string') {
@@ -492,6 +664,37 @@ export namespace Filesystem {
 		ipcRenderer.send('show-item-in-folder', path);
 	}
 
+
+	// MARK: Working Folder
+	/**
+	 * Whether the web app writes files into a working folder instead of downloading them
+	 */
+	export function usesWorkingFolder(): boolean {
+		return !isApp && SAF.isSupported() && !saf_fallback
+	}
+	/**
+	 * Stop writing into the working folder for the rest of the session and download files instead
+	 */
+	export async function disableWorkingFolder() {
+		saf_fallback = true
+		await SAF.detach()
+	}
+	/**
+	 * Whether a file exists at the given path
+	 */
+	export async function fileExists(path: string): Promise<boolean> {
+		if (isApp) {
+			try {
+				return fs.existsSync(path)
+			} catch (error) {
+				return false
+			}
+		}
+		if (SAF.isSupported() && typeof path == 'string') {
+			return await SAF.fileExists(path)
+		}
+		return false
+	}
 
 
 	// MARK: Find

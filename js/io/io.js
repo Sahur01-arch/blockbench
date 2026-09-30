@@ -708,7 +708,19 @@ BARS.defineActions(function() {
 			} else {
 				await saveTextures()
 				if (Format.codec && Format.codec.export) {
-					Format.codec.export()
+					if (SAF.isActive() && (Project.save_path || Project.export_path)) {
+						// Overwrite the files in the working folder instead of re-exporting
+						if (Project.save_path) {
+							Codecs.project.write(Codecs.project.compile(), Project.save_path);
+						}
+						if (Project.export_path && export_codec?.compile && export_codec.id != 'image') {
+							export_codec.write(export_codec.compile(), Project.export_path)
+						} else if (!Project.save_path && export_codec?.export && export_codec.id !== 'project') {
+							export_codec.export()
+						}
+					} else {
+						Format.codec.export()
+					}
 				}
 				/*
 				if (Format.codec && Format.codec.export) {

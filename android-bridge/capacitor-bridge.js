@@ -19,14 +19,35 @@
 (function () {
 	'use strict';
 
+	// Plugin Capacitor di-register oleh native bridge (atau oleh
+	// <script src="capacitor.js"> kalau fallback web). Lokasinya beda-beda
+	// tergantung versi, jadi ambil dari mana saja yang ada.
+	function getPlugin(name) {
+		const candidates = [
+			window.Capacitor?.Plugins?.[name],
+			window.CapacitorPlugins?.[name],
+			window[name],
+		];
+		return candidates.find(Boolean);
+	}
+
 	// Pastikan hanya jalan di dalam Capacitor (bukan di browser desktop biasa)
 	if (!window.Capacitor) {
 		console.warn('[BB-Bridge] Capacitor tidak terdeteksi, bridge tidak diaktifkan.');
 		return;
 	}
 
-	const { Filesystem, Directory, Encoding } = CapacitorFilesystem;
-	const { Share } = CapacitorShare;
+	const Filesystem = getPlugin('Filesystem');
+	const Share = getPlugin('Share');
+	if (!Filesystem || !Share) {
+		console.error(
+			'[BB-Bridge] Plugin @capacitor/filesystem / @capacitor/share belum termuat. ' +
+			'Jalankan `npx cap sync android` lalu build ulang.'
+		);
+		return;
+	}
+
+	const { Directory, Encoding } = Filesystem;
 
 	// -----------------------------------------------------------------
 	// 1. FILE SAVE / EXPORT

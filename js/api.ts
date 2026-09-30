@@ -4,6 +4,7 @@ import { Prop } from "./misc";
 import { EventSystem } from "./util/event_system";
 import VersionUtil from './util/version_util';
 import { Filesystem } from "./file_system";
+import { SAF } from "./util/saf";
 import { MessageBoxOptions } from "./interface/dialog";
 import { currentwindow, electron, shell, SystemInfo } from "./native_apis";
 
@@ -385,6 +386,17 @@ export const Blockbench = {
 	findFileFromContent: Filesystem.findFileFromContent,
 	addDragHandler: Filesystem.addDragHandler,
 	removeDragHandler: Filesystem.removeDragHandler,
+	fileExists: Filesystem.fileExists,
+	workingFolder: {
+		supported: SAF.isSupported,
+		active: SAF.isActive,
+		name: SAF.getDirectoryName,
+		pick: SAF.pickDirectory,
+		forget: SAF.forget,
+		list: SAF.listFiles,
+		read: SAF.readFile,
+		write: SAF.writeFile,
+	},
 };
 
 (function() {

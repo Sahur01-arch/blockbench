@@ -406,9 +406,12 @@ BARS.defineActions(function() {
 								export_codec: 'bedrock',
 								model_identifier: Project.model_identifier + '.' + name,
 							}).add();
-							if (isApp && result.export_location) {
-								collections[key].export_path = PathModule.join(result.export_location as string, project_name + '.' + name) + '.geo.json';
-							}
+						if (isApp && result.export_location) {
+							collections[key].export_path = PathModule.join(result.export_location as string, project_name + '.' + name) + '.geo.json';
+						} else if (SAF.isActive() && Project.export_path) {
+							let dir = SAF.dirname(Project.export_path);
+							collections[key].export_path = (dir ? dir + '/' : '') + project_name + '.' + name + '.geo.json';
+						}
 						}
 						collections[key].children.push(cube.uuid);
 						//[key].children.safePush(...cube.getAllAncestors().map(node => node.uuid));

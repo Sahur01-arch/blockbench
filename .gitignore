@@ -8,3 +8,11 @@ electron-builder.env
 node_modules/
 workbox-*.js
 service_worker.js
+
+# Capacitor Android wrapper (dibuat ulang tiap build)
+/www/
+/android/
+/android-bridge/build/
+.gradle/
+*.keystore
+*.jks

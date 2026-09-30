@@ -450,12 +450,13 @@ var codec = new Codec('obj', {
 	},
 	export() {
 		var scope = this;
-		if (isApp) {
+		if (isApp || SAF.isActive()) {
 			Blockbench.export({
 				resource_id: 'obj',
 				type: this.name,
 				extensions: [this.extension],
 				name: this.fileName(),
+				startpath: this.startPath(),
 				custom_writer: (a, b) => scope.write(a, b),
 			})
 

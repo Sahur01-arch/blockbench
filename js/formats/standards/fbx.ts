@@ -1405,7 +1405,7 @@ var codec = new Codec('fbx', {
 			if (result === null) return;
 		}
 		var scope = this;
-		if (isApp) {
+		if (isApp || SAF.isActive()) {
 			Filesystem.exportFile({
 				resource_id: 'fbx',
 				type: this.name,

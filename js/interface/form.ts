@@ -1066,7 +1066,7 @@ class FormElementFile extends FormElement {
 			input.val('');
 		})
 
-		input_wrapper.on('click', e => {
+		input_wrapper.on('click', async e => {
 			const fileCB = (files) => {
 				this.value = files[0].path;
 				this.content = files[0].content;
@@ -1085,7 +1085,7 @@ class FormElementFile extends FormElement {
 					}, fileCB);
 					break;
 				case 'folder':
-					let path = Blockbench.pickDirectory({
+					let path = await Blockbench.pickDirectory({
 						startpath: this.value,
 					})
 					if (path) fileCB([{path}]);
@@ -1096,7 +1096,9 @@ class FormElementFile extends FormElement {
 						extensions: this.options.extensions,
 						type: this.options.filetype,
 						startpath: this.value,
-						custom_writer: () => {},
+						custom_writer: (content, file_path, callback) => {
+							if (typeof callback == 'function') callback(file_path);
+						},
 					}, path => {
 						this.value = path;
 						input.val(settings.streamer_mode.value ? `[${tl('generic.redacted')}]` : this.value);

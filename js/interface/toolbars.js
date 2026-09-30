@@ -572,6 +572,37 @@ export const BARS = {
 					Filesystem.showFileInFolder(Project.export_path || Project.save_path);
 				}
 			})
+			new Action('working_folder', {
+				icon: 'folder',
+				category: 'file',
+				condition: () => SAF.isSupported(),
+				click: async function () {
+					let name = SAF.getDirectoryName();
+					if (name && await SAF.ensurePermission(SAF.getDirectoryHandle(), 'readwrite', true)) {
+						Blockbench.showMessageBox({
+							title: 'saf.working_folder.title',
+							icon: 'folder',
+							message: tl('saf.working_folder.message', [name]),
+							buttons: ['saf.working_folder.change', 'saf.working_folder.remove', 'dialog.cancel'],
+							confirm: 0,
+							cancel: 2
+						}, async (button) => {
+							if (button == 0) {
+								await SAF.pickDirectory({id: 'model'});
+								Blockbench.showQuickMessage(tl('saf.working_folder.changed', [SAF.getDirectoryName()]));
+							} else if (button == 1) {
+								await SAF.forget();
+								Blockbench.showQuickMessage(tl('saf.working_folder.removed'));
+							}
+						})
+					} else {
+						let chosen = await SAF.pickDirectory({id: 'model'});
+						if (chosen) {
+							Blockbench.showQuickMessage(tl('saf.working_folder.changed', [chosen]));
+						}
+					}
+				}
+			})
 			new Action('reload', {
 				icon: 'refresh',
 				category: 'file',

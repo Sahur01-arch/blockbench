@@ -868,7 +868,7 @@ var codec = new Codec('collada', {
 	},
 	export() {
 		var scope = this;
-		if (isApp) {
+		if (isApp || SAF.isActive()) {
 			Blockbench.export({
 				resource_id: 'dae',
 				type: this.name,

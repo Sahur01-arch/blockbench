@@ -147,14 +147,19 @@
 		"generate-types": "tsc --project tsconfig.json && node ./scripts/convert_types.js",
 		"publish-types": "npm publish ./types",
 		"generate-docs": "npm run generate-types && npx typedoc --options typedoc.json",
-    "cap:sync": "npx cap sync android",
-    "cap:open": "npx cap open android",
-    "copy:www": "node scripts/copy-blockbench-dist.js"
+		"cap:sync": "npx cap sync android",
+		"cap:open": "npx cap open android",
+		"copy:www": "node scripts/copy-blockbench-dist.js",
+		"build:web-www": "npm run build-web && npm run copy:www",
+		"build:android": "npm run build:web-www && npx cap sync android",
+		"apk:debug": "npm run build:android && cd android && ./gradlew assembleDebug",
+		"apk:release": "npm run build:android && cd android && ./gradlew assembleRelease"
 	},
 	"overrides": {
 		"three": "$three"
 	},
 	"devDependencies": {
+		"@capacitor/cli": "^6.2.2",
 		"@electron/notarize": "^2.5.0",
 		"@lunapaint/tga-codec": "^0.2.0",
 		"@types/jquery": "^3.5.32",
@@ -191,10 +196,12 @@
 		"workbox-build": "^6.5.3"
 	},
 	"dependencies": {
+		"@capacitor/android": "^6.0.0",
+		"@capacitor/core": "^6.0.0",
+		"@capacitor/filesystem": "^6.0.0",
+		"@capacitor/share": "^6.0.0",
 		"@electron/remote": "^2.1.2",
 		"electron-color-picker": "^0.2.0",
-		"electron-updater": "^6.7.3",
-    "@capacitor/android": "^6.0.0",                                                                 "@capacitor/core": "^6.0.0",                                                                    "@capacitor/filesystem": "^6.0.0",                                                              
-    "@capacitor/share": "^6.0.0"
+		"electron-updater": "^6.7.3"
 	}
 }

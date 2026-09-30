@@ -146,6 +146,7 @@ export const MenuBar = {
 			'open_model',
 			'open_from_link',
 			'new_window',
+			'working_folder',
 			new MenuSeparator('project'),
 			'save_project',
 			'save_project_as',

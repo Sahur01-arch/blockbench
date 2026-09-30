@@ -133,6 +133,11 @@ declare global {
 	}
 
 	let osfs: string
+
+	/**
+	 * File System Access API layer, used to read from and write to a folder selected by the user
+	 */
+	const SAF: typeof import('./saf').SAF
 }
 
 export { }

@@ -687,6 +687,12 @@ export class Texture {
 	setSourceFromLocalFile() {
 		let file_format_data = Texture.file_formats[this.file_format];
 		if (!file_format_data.decode) {
+			if (!isApp && SAF.isActive() && this.path) {
+				SAF.readFile(this.path, 'image').then(result => {
+					if (typeof result.content == 'string') this.updateSource(result.content);
+				}).catch(error => SAF.reportError(error, this.path));
+				return;
+			}
 			this.source = this.path.replace(/#/g, '%23') + '?' + tex_version;
 
 		} else if (isApp && this.path) {
@@ -697,6 +703,10 @@ export class Texture {
 				file_format_data.decode(data, this);
 			}
 
+		} else if (!isApp && SAF.isActive() && this.path) {
+			SAF.readFile(this.path, 'buffer').then(result => {
+				file_format_data.decode(result.content, this);
+			}).catch(error => SAF.reportError(error, this.path));
 		}
 	}
 	updateSource(dataUrl) {
@@ -1667,6 +1677,31 @@ export class Texture {
 					this.fromPath(path)
 				})
 			}
+		} else if (SAF.isActive()) {
+			// Write into the working folder
+			let find_path = this.path;
+			if (!find_path && Project.export_path) {
+				var arr = Project.export_path.split(osfs);
+				var index = arr.lastIndexOf('models');
+				if (index > 1) arr.splice(index, 256, 'textures')
+				if (this.folder) arr = arr.concat(this.folder.split('/'));
+				arr.push(this.name)
+				find_path = arr.join(osfs)
+			}
+			Blockbench.export({
+				resource_id: 'texture',
+				type: file_format_options.name + ' Texture',
+				extensions: file_format_options.extensions,
+				name: this.name,
+				content: export_data,
+				startpath: find_path,
+				savetype: 'image'
+			}, (path) => {
+				this.fromPath(path);
+				if (Format.texture_mcmeta && this.frameCount > 1) {
+					Blockbench.writeFile(path + '.mcmeta', {content: compileJSON(this.getMCMetaContent())})
+				}
+			})
 		} else {
 			//Download
 			Blockbench.export({

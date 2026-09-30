@@ -74,20 +74,23 @@ let codec = new Codec('image', {
 		}
 	},
 	afterSave() {
-		if (!isApp || !Texture.all.length) return;
+		if (!Texture.all.length) return;
+		if (!isApp && !SAF.isActive()) return;
 		let last = Texture.all.last();
 		let {path, name} = last;
 
 		Project.export_path = path;
 		Project.name = pathToName(name, false);
 		Project.saved = true;
-		
-		addRecentProject({
-			name,
-			path: path,
-			icon: Format.icon
-		});
-		updateRecentProjectThumbnail();
+
+		if (isApp) {
+			addRecentProject({
+				name,
+				path: path,
+				icon: Format.icon
+			});
+			updateRecentProjectThumbnail();
+		}
 	},
 	export_options: {
 		format: {type: 'select', label: 'codec.common.format', options: {

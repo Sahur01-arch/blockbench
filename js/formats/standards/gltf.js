@@ -534,7 +534,7 @@ var codec = new Codec('gltf', {
 			name: this.fileName(),
 			startpath: this.startPath(),
 			content,
-			custom_writer: isApp ? (a, b) => this.write(a, b) : null,
+			custom_writer: (isApp || SAF.isActive()) ? (a, b) => this.write(a, b) : null,
 		}, path => this.afterDownload(path));
 	}
 })

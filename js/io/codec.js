@@ -1,5 +1,3 @@
-import { fs } from "../native_apis";
-
 export const Codecs = {};
 export class Codec extends EventSystem {
 	constructor(id, data) {
@@ -124,7 +122,7 @@ export class Codec extends EventSystem {
 			name: this.fileName(),
 			startpath: this.startPath(),
 			content: this.compile(options),
-			custom_writer: isApp ? (a, b) => this.write(a, b) : null,
+			custom_writer: (isApp || SAF.isActive()) ? (a, b) => this.write(a, b) : null,
 		}, path => this.afterDownload(path))
 	}
 	async patchCollectionExport(collection, callback) {
@@ -179,8 +177,8 @@ export class Codec extends EventSystem {
 			return Project.export_path;
 		}
 	}
-	write(content, path) {
-		if (fs.existsSync(path) && this.overwrite) {
+	async write(content, path) {
+		if (await Filesystem.fileExists(path) && this.overwrite) {
 			this.overwrite(content, path, path => this.afterSave(path))
 		} else {
 			Blockbench.writeFile(path, {content}, path => this.afterSave(path));
@@ -210,7 +208,7 @@ export class Codec extends EventSystem {
 			Project.saved = true;
 		}
 		Settings.updateSettingsInProfiles();
-		if (this.remember) {
+		if (isApp && this.remember) {
 			addRecentProject({
 				name,
 				path: path,

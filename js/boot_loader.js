@@ -19,6 +19,7 @@ Interface.preview = document.getElementById('preview');
 CustomTheme.setup();
 
 StateMemory.init('dialog_paths', 'object')
+StateMemory.init('saf_paths', 'object')
 
 initCanvas()
 animate()
@@ -59,6 +60,14 @@ MenuBar.setup()
 translateUI()
 loadThemes()
 initReferenceImages()
+
+if (!isApp) {
+	SAF.initialize().then(available => {
+		if (available && Blockbench.hasFlag('dev')) {
+			console.log('Working folder: ' + SAF.getDirectoryName());
+		}
+	})
+}
 
 console.log(`Three.js r${THREE.REVISION}`)
 console.log('%cBlockbench ' + Blockbench.version + (isApp

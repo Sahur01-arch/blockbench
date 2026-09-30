@@ -1364,12 +1364,15 @@ var codec = new Codec('bedrock', {
 			return autoStringify(main_tag)
 		}
 	},
-	overwrite(content, path, cb) {
+	async overwrite(content, path, cb) {
 		var data, index;
 		var model_id = 'geometry.'+(this.context?.model_identifier || Project.geometry_name || 'unknown');
+		var read_error = null;
 		try {
-			data = fs.readFileSync(path, 'utf-8');
-			data = autoParseJSON(data, false);
+			var source = isApp
+				? fs.readFileSync(path, 'utf-8')
+				: await SAF.readFile(path, 'text').then(result => result.content);
+			data = autoParseJSON(source, false);
 			if (data['minecraft:geometry'] instanceof Array == false) {
 				throw 'Incompatible format';
 			}
@@ -1382,18 +1385,36 @@ var codec = new Codec('bedrock', {
 				i++;
 			}
 		} catch (err) {
-			var answer = dialog.showMessageBox(currentwindow, {
-				type: 'warning',
-				buttons: [
-					tl('message.bedrock_overwrite_error.overwrite'),
-					tl('dialog.cancel')
-				],
-				title: 'Blockbench',
-				message: tl('message.bedrock_overwrite_error.message'),
-				detail: err+'',
-				noLink: false
-			})
-			if (answer === 1) {
+			read_error = err;
+		}
+		if (read_error) {
+			var should_overwrite;
+			if (isApp) {
+				should_overwrite = dialog.showMessageBox(currentwindow, {
+					type: 'warning',
+					buttons: [
+						tl('message.bedrock_overwrite_error.overwrite'),
+						tl('dialog.cancel')
+					],
+					title: 'Blockbench',
+					message: tl('message.bedrock_overwrite_error.message'),
+					detail: read_error+'',
+					noLink: false
+				}) != 1;
+			} else {
+				should_overwrite = await new Promise(resolve => Blockbench.showMessageBox({
+					title: 'Blockbench',
+					icon: 'warning',
+					message: tl('message.bedrock_overwrite_error.message') + '\n\n```' + (read_error + '').replace(/[`"<>]/g, '') + '```',
+					buttons: [
+						tl('message.bedrock_overwrite_error.overwrite'),
+						tl('dialog.cancel')
+					],
+					confirm: 0,
+					cancel: 1
+				}, button => resolve(button != 1)));
+			}
+			if (!should_overwrite) {
 				return;
 			}
 		}

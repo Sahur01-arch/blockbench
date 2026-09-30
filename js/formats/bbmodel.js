@@ -858,7 +858,7 @@ BARS.defineActions(function() {
 		condition: () => Project,
 		click: function () {
 			saveTextures(true)
-			if (isApp && Project.save_path) {
+			if ((isApp || SAF.isActive()) && Project.save_path) {
 				codec.write(codec.compile(), Project.save_path);
 			} else {
 				codec.export()

@@ -2845,5 +2845,20 @@
 	"preview_scene.minecraft_ocean": "Ocean",
 	"preview_scene.minecraft_coral_reef": "Coral Reef",
 	"preview_scene.minecraft_lush_cave": "Lush Cave",
-	"preview_scene.minecraft_deep_dark": "Deep Dark"
+	"preview_scene.minecraft_deep_dark": "Deep Dark",
+	"saf.folder.required.title": "No working folder",
+	"saf.folder.required.message": "Choose a folder to save this file into. Blockbench will remember the folder and save subsequent files there.",
+	"saf.folder.required.choose": "Choose Folder",
+	"saf.folder.required.download": "Download Instead",
+	"saf.folder.unsupported.title": "Not Supported",
+	"saf.folder.unsupported.message": "Your browser doesn't support the File System Access API, so files will be downloaded instead. Use a Chromium based browser to be able to choose a folder.",
+	"saf.folder.permission.title": "Permission Required",
+	"saf.folder.permission.message": "Blockbench needs read and write access to the selected folder.",
+	"saf.working_folder.title": "Working Folder",
+	"saf.working_folder.message": "Files are currently saved into \"%0\".",
+	"saf.working_folder.change": "Change Folder",
+	"saf.working_folder.remove": "Stop Using Folder",
+	"saf.working_folder.changed": "Working folder set to \"%0\"",
+	"saf.working_folder.removed": "No working folder selected, files will be downloaded",
+	"saf.error.title": "File Error"
 }
