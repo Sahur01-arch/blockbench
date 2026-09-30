@@ -1,0 +1,132 @@
+name: Build Android APK
+
+# Jalankan manual dari tab Actions. Tidak ada trigger otomatis supaya
+# runner tidak terpakai habis.
+#
+# Prasyarat: 4 secrets ini harus sudah diset di
+# Settings > Secrets and variables > Actions > Repository secrets:
+#   KEYSTORE_BASE64   isi file .jks/.keystore dalam base64 (bukan path file)
+#   KEYSTORE_PASSWORD password store dari `keytool -genkeypair`
+#   KEY_ALIAS        alias key, mis. "blockbench"
+#   KEY_PASSWORD     password key itu
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name APK (kosong = pakai default dari build.gradle)'
+        required: false
+        default: ''
+      version_code:
+        description: 'Version code — WAJIB naik tiap rilis, mis. 2, 3, 4 (kosong = default 1)'
+        required: false
+        default: ''
+      key_alias:
+        description: 'Override key alias (kosong = pakai secret KEY_ALIAS)'
+        required: false
+        default: ''
+
+# Supaya tidak ada dua build APK jalan barengan.
+concurrency:
+  group: build-apk
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Node 22 = versi yang sudah dipakai/terverifikasi saat build web lokal.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Build bundle Blockbench + isi folder www/ (webDir Capacitor).
+      # www/ di-ignore git, jadi harus dibuat ulang di setiap run.
+      - name: Build web assets
+        run: npm run build:web-www
+
+      # Folder android/ juga di-ignore git, jadi harus di-generate.
+      # Kalau sudah ada (mis. sisa run sebelumnya), sync saja.
+      - name: Add / sync Android platform
+        run: |
+          if [ -d android ]; then
+            echo "android/ sudah ada, langsung sync"
+          else
+            npx cap add android
+          fi
+          npx cap sync android
+
+      # Gradle 8.2.1 + AGP 8.2.1 butuh JDK 17 (JDK yang lebih baru bisa gagal).
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # compileSdk/targetSdk = 34 (android/variables.gradle).
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Decode keystore dari secret, validasi via keytool, lalu patch
+      # android/app/build.gradle supaya release build ter-sign.
+      # Password dibaca lewat System.getenv() di build.gradle, jadi tidak
+      # pernah ditulis ke file mana pun.
+      # Input workflow lewat `env` (bukan interpolasi langsung ke `run`)
+      # supaya tidak bisa jadi shell injection.
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ inputs.key_alias || secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          ARGS=()
+          if [ -n "$VERSION_NAME" ]; then
+            ARGS+=(--version-name "$VERSION_NAME")
+          fi
+          if [ -n "$VERSION_CODE" ]; then
+            ARGS+=(--version-code "$VERSION_CODE")
+          fi
+          node scripts/setup-android-release.js "${ARGS[@]}"
+
+      - name: Build release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockbench-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # Ringkasan singkat di halaman run.
+      - name: Summary
+        run: |
+          echo "### APK siap" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh android/app/build/outputs/apk/release/*.apk >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Verifikasi signature:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "apksigner verify --print-certs android/app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
