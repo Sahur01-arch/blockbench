@@ -151,13 +151,17 @@ if (!useDebugKey) {
 			'atau `base64 -i release.keystore | tr -d "\\n"` (macOS)'
 		);
 	}
-	// File keystore JKS/PKCS12 selalu diawali magic bytes, bukan teks biasa.
-	const looksLikeKeystore = keystore[0] === 0x30 && keystore[1] === 0x82;
-	if (!looksLikeKeystore) {
+	// Deteksi magic bytes biar base64 yang salah (mis. teks biasa) ketahuan.
+	//   JKS    : FE ED FE ED
+	//   PKCS12 : 30 82 (DER)
+	const isJks = keystore[0] === 0xfe && keystore[1] === 0xed
+		&& keystore[2] === 0xfe && keystore[3] === 0xed;
+	const isPkcs12 = keystore[0] === 0x30 && keystore[1] === 0x82;
+	if (!isJks && !isPkcs12) {
 		console.warn(
-			'[setup-release] PERINGATAN: hasil decode tidak diawali magic bytes DER (0x30 0x82).'
+			'[setup-release] PERINGATAN: hasil decode tidak punya magic bytes JKS (FEEDFEED)'
 		);
-		console.warn('[setup-release] Pastikan bukan base64 dari file teks (bukan .jks/.keystore asli).');
+		console.warn('[setup-release] atau PKCS12/DER (3082). Pastikan base64 dari file .jks asli, bukan teks.');
 	}
 
 	fs.writeFileSync(KEYSTORE_PATH, keystore, { mode: 0o600 });
