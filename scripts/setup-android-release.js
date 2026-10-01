@@ -297,12 +297,25 @@ function patchGradleValue(pattern, replacement, label) {
 }
 
 if (versionName) {
-	patchGradleValue(/(versionName\s+)["'][^"']*["']/, `$1"${versionName}"`, 'versionName');
+	// Izinkan `versionName "x"` dan `versionName = "x"`. Template Capacitor
+	// memakai bentuk kedua, jadi pola lama gagal match di sana.
+	patchGradleValue(
+		/(versionName\s*=?\s*)["'][^"']*["']/,
+		`$1"${versionName}"`,
+		'versionName'
+	);
 	console.log(`[setup-release] versionName di-set ke "${versionName}".`);
 }
 
 if (versionCode) {
-	patchGradleValue(/(versionCode\s+)\d+/, `$1${versionCode}`, 'versionCode');
+	// Izinkan juga `versionCode = 4` (dengan tanda sama). Template resmi
+	// Capacitor pakai bentuk itu, jadi pola lama `versionCode\s+\d+` gagal
+	// match kalau kebetulangenerate dengan gaya tersebut.
+	patchGradleValue(
+		/(versionCode\s*=?\s*)\d+/,
+		`$1${versionCode}`,
+		'versionCode'
+	);
 	console.log(`[setup-release] versionCode di-set ke ${versionCode}.`);
 }
 
