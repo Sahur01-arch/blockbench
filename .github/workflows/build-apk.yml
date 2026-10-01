@@ -124,6 +124,11 @@ jobs:
           fi
           node scripts/setup-android-release.js "${ARGS[@]}"
 
+      # Matikan WebView remote-debugging untuk build rilis. Harus SETELAH
+      # `cap sync` (file-nya hasil generate) dan SEBELAH Gradle build.
+      - name: Harden release config
+        run: node scripts/harden-android-release.js
+
       # PENTING: env signing harus ada di step INI juga, bukan cuma di step
       # "Configure release signing". build.gradle membaca kredensial lewat
       # System.getenv(), dan proses Gradle jalan di step sendiri — kalau env
