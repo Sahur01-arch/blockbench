@@ -154,7 +154,8 @@
 		"build:android": "npm run build:web-www && npx cap sync android",
 		"apk:debug": "npm run build:android && cd android && ./gradlew assembleDebug",
 		"apk:release": "npm run build:android && cd android && ./gradlew assembleRelease",
-		"apk:release:signed": "npm run build:android && node scripts/harden-android-release.js && node scripts/setup-android-release.js && cd android && ./gradlew assembleRelease"
+		"apk:release:signed": "npm run build:android && node scripts/harden-android-release.js && node scripts/setup-android-release.js && cd android && ./gradlew assembleRelease",
+		"test:export": "node scripts/test-export-patch.js"
 	},
 	"overrides": {
 		"three": "$three"

@@ -52,36 +52,128 @@
 	// -----------------------------------------------------------------
 	// 1. FILE SAVE / EXPORT
 	// -----------------------------------------------------------------
-	// Blockbench versi web normalnya export lewat trik <a download>,
-	// yang di WebView Android sering gagal / tidak muncul dialog simpan.
-	// Kita override supaya file ditulis dulu ke storage lokal app,
-	// lalu tawarkan opsi "Share" (user bisa pilih simpan ke Drive,
-	// kirim ke WhatsApp, dsb) via Android Share Sheet resmi.
+	// MASALAH YANG DIPERBAIKI:
+	// Blockbench (versi web) export lewat `file-saver`, yang pada akhirnya
+	// membuat <a download> lalu dispatchEvent('click'). Di Android WebView
+	// tanpa DownloadListener, klik itu DIABAIKAN SENYAP — tidak ada file,
+	// tidak ada error, tidak ada notifikasi. Persis gejala "export tidak
+	// bekerja dan tidak ada notifikasi".
+	//
+	// Di sini kita intercept jalur itu: file ditulis ke cache app, lalu
+	// Offer Share Sheet (bisa pilih Drive/WhatsApp/dll). Kalau user MEMBATAL
+	// Share Sheet, file tetap aman di folder exports/ — jadi tidak hilang.
+	//
+	// PENTING: fungsi ini di-patch ke `Filesystem.exportFile` oleh
+	// `downloadFile()`. Tanpa patch itu, saveAs() tetap jalan dan buta.
+
+	const EXPORT_DIR = 'exports';
+
+	function showNotice(message, isError) {
+		// Blockbench punya showQuickMessage, tapi tidak selalu tersedia
+		// (mis. saat dipanggil sebelum UI selesai load). Coba pakai itu
+		// dulu supaya notifikasi terasa native, jatuh ke console kalau tidak.
+		try {
+			if (typeof Blockbench !== 'undefined' && Blockbench.showQuickMessage) {
+				Blockbench.showQuickMessage(message, isError ? 4000 : 2500);
+				return;
+			}
+		} catch (e) {
+			// abaikan, lanjut ke fallback
+		}
+		(isError ? console.error : console.log)('[BB-Bridge] ' + message);
+	}
+
+	// Terjemahkan isi file (string / Blob / ArrayBuffer) menjadi bentuk
+	// yang diterima Filesystem.writeFile.
+	function toWritablePayload(content) {
+		const isText = typeof content === 'string';
+
+		// Encoding UTF8 hanya valid kalau datanya string; untuk data binary
+		// kita konversi ke base64 dulu (lihat cabang di bawah).
+		if (isText) {
+			return { data: content, encoding: Encoding.UTF8 };
+		}
+
+		if (content instanceof Blob) {
+			// Blob -> base64 (Filesystem tidak menerima Blob langsung
+			// di semua versi plugin).
+			return content.arrayBuffer().then((buf) => ({
+				data: arrayBufferToBase64(buf),
+				encoding: Encoding.Base64,
+			}));
+		}
+
+		if (content instanceof ArrayBuffer) {
+			return { data: arrayBufferToBase64(content), encoding: Encoding.Base64 };
+		}
+
+		if (ArrayBuffer.isView(content)) {
+			return {
+				data: arrayBufferToBase64(content.buffer),
+				encoding: Encoding.Base64,
+			};
+		}
+
+		return null;
+	}
+
+	function arrayBufferToBase64(buffer) {
+		const bytes = new Uint8Array(buffer);
+		// Chunking supaya tidak blew stack untuk file besar (mis. texture 4K).
+		let binary = '';
+		const CHUNK = 0x8000;
+		for (let i = 0; i < bytes.length; i += CHUNK) {
+			binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+		}
+		return btoa(binary);
+	}
+
+	async function saveFile(filename, content) {
+		try {
+			showNotice('Menyimpan ' + filename + '...');
+
+			const payload = await toWritablePayload(content);
+			if (!payload) {
+				throw new Error('Tipe konten tidak didukung: ' + Object.prototype.toString.call(content));
+			}
+
+			const write = await Filesystem.writeFile({
+				path: EXPORT_DIR + '/' + filename,
+				data: payload.data,
+				encoding: payload.encoding,
+				directory: Directory.Cache,
+				recursive: true,
+			});
+
+			// Share Sheet hanya "tawaran". Kalau user batal, file tetap ada.
+			try {
+				await Share.share({
+					title: 'Simpan file Blockbench',
+					text: filename,
+					url: write.uri,
+					dialogTitle: 'Simpan atau bagikan ' + filename,
+				});
+				showNotice(filename + ' siap disimpan.');
+			} catch (shareErr) {
+				console.warn('[BB-Bridge] Share Sheet dibatalkan:', shareErr);
+				showNotice(filename + ' tersimpan di folder exports/ app.');
+			}
+
+			return { success: true, uri: write.uri };
+		} catch (err) {
+			console.error('[BB-Bridge] Gagal menyimpan file:', err);
+			showNotice('Gagal menyimpan ' + filename + '.', true);
+			return { success: false, error: err };
+		}
+	}
 
 	window.BBBridge = {
 
-		async saveFile(filename, dataString, mimeType) {
-			try {
-				const write = await Filesystem.writeFile({
-					path: filename,
-					data: dataString,
-					directory: Directory.Cache,
-					encoding: mimeType.startsWith('text') ? Encoding.UTF8 : undefined,
-				});
-
-				await Share.share({
-					title: 'Simpan file Blockbench',
-					text: `File hasil export: ${filename}`,
-					url: write.uri,
-					dialogTitle: 'Simpan atau bagikan file',
-				});
-
-				return { success: true, uri: write.uri };
-			} catch (err) {
-				console.error('[BB-Bridge] Gagal menyimpan file:', err);
-				return { success: false, error: err };
-			}
-		},
+		// Dipanggil oleh interceptor di file `bb-export-android-patch.js`
+		// yang menyuntikkan `custom_writer` ke downloadFile() Blockbench.
+		// Signature: (filename, content) => Promise<{success, uri?, error?}>
+		// `content` bisa string / Blob / ArrayBuffer / TypedArray.
+		saveFile: saveFile,
 
 		// -----------------------------------------------------------------
 		// 2. FILE OPEN / IMPORT

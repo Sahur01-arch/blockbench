@@ -21,8 +21,11 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const DEST_WWW = path.join(ROOT, 'www');
+// Tiga file bridge yang disuntik ke index.html. Urutan dimsuk di
+// BRIDGE_FILES di bawah itu penting, jangan diacak.
 const BRIDGE_SRC = path.join(ROOT, 'android-bridge', 'capacitor-bridge.js');
-const BRIDGE_DEST = path.join(DEST_WWW, 'bridge', 'capacitor-bridge.js');
+const PATCH_SRC = path.join(ROOT, 'android-bridge', 'bb-export-android-patch.js');
+const HOOK_SRC = path.join(ROOT, 'android-bridge', 'bb-export-hook.js');
 
 // Folder/file yang TIDAK perlu ikut ke APK (source Node.js, tooling, dokumen dev)
 const EXCLUDE_ROOT = new Set([
@@ -72,20 +75,47 @@ fs.mkdirSync(DEST_WWW, { recursive: true });
 copyRecursive(ROOT, DEST_WWW, true);
 console.log('[copy-www] Isi repo berhasil disalin ke www/');
 
-// 2. Copy bridge script
-if (!fs.existsSync(BRIDGE_SRC)) {
-	console.error(`[copy-www] Bridge script tidak ditemukan: ${BRIDGE_SRC}`);
-	process.exit(1);
-}
-fs.mkdirSync(path.dirname(BRIDGE_DEST), { recursive: true });
-fs.copyFileSync(BRIDGE_SRC, BRIDGE_DEST);
-console.log('[copy-www] Bridge script berhasil disalin');
-
-// 3. Suntik <script> tag ke index.html (sebelum bundle utama)
+// 2. Suntik <script> tag ke index.html (sebelum bundle utama)
+//
+// Urutan tag PENTING. Ketiganya harus dimuat SEBELUM bundle utama, dan
+// dalam urutan ini:
+//
+//   capacitor-bridge.js  -> membuat window.BBBridge (penyedia saveFile)
+//   export-patch.js      -> mendaftarkan installer patch (window.BBExportAndroidPatch)
+//   export-hook.js       -> memanggil installer itu lewat polling, karena
+//                           window.Blockbench baru ada setelah bundle selesai
+//                           dievaluasi (ES module = dieksekusi paling akhir)
+//
+// Kalau urutan salah atau salah satu hilang, export akan balik ke
+// saveAs() -> <a download> -> klik senyap yang diabaikan WebView.
 const indexPath = path.join(DEST_WWW, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf-8');
-const injectTag = '\t<script src="bridge/capacitor-bridge.js"></script>\n';
 const bundleTag = '<script type="module" src="dist/bundle.js"></script>';
+
+const BRIDGE_DEST_DIR = path.join(DEST_WWW, 'bridge');
+
+const BRIDGE_FILES = [
+	{ src: BRIDGE_SRC, dest: 'capacitor-bridge.js' },
+	{ src: PATCH_SRC, dest: 'export-patch.js' },
+	{ src: HOOK_SRC, dest: 'export-hook.js' },
+];
+
+fs.mkdirSync(BRIDGE_DEST_DIR, { recursive: true });
+
+for (const file of BRIDGE_FILES) {
+	const dest = path.join(BRIDGE_DEST_DIR, file.dest);
+	if (!fs.existsSync(file.src)) {
+		console.error(`[copy-www] Bridge script tidak ditemukan: ${file.src}`);
+		process.exit(1);
+	}
+	fs.copyFileSync(file.src, dest);
+}
+console.log(
+	`[copy-www] ${BRIDGE_FILES.length} bridge script disalin: ` +
+	BRIDGE_FILES.map((f) => f.dest).join(', ')
+);
+
+const injectTag = BRIDGE_FILES.map((f) => `\t<script src="bridge/${f.dest}"></script>\n`).join('');
 
 if (!html.includes('capacitor-bridge.js')) {
 	if (html.includes(bundleTag)) {
