@@ -127,10 +127,70 @@
 		B.__bbExportPatched = true;
 
 		log('export di-patch — file akan ditulis lewat Capacitor Filesystem.');
+		setStatus('installed', 'Blockbench.export & .exportFile ter-wrap.');
 		return true;
 	}
 
 	// Dipanggil oleh bb-export-hook.js (polling, karena `Blockbench`
 	// global baru ada setelah modul selesai dievaluasi).
 	window.BBExportAndroidPatch = { install: install };
+
+	// -----------------------------------------------------------------
+	// DIAGNOSTIK DI DALAM APP
+	// -----------------------------------------------------------------
+	// masalah sebelumnya (enum Directory/Encoding) hanya bisa dilihat dari
+	// logcat, yang tidak selalutersedia. Di sini kita tulis status ke
+	// localStorage supaya bisa dibaca dari chrome://inspect, dan tampilkan
+	// banner di layar kalau bridge GAGAL aktif — supaya user langsung tahu
+	// tanpa perlu logcat sama sekali.
+	var STATUS_KEY = 'bb-export-status';
+
+	function setStatus(state, detail) {
+		try {
+			localStorage.setItem(
+				STATUS_KEY,
+				JSON.stringify({
+					state: state,
+					detail: detail || '',
+					time: new Date().toISOString(),
+				})
+			);
+		} catch (e) {
+			// storage bisa diblokir; tidak fatal
+		}
+
+		if (state === 'failed' || state === 'installed') {
+			showBanner(state, detail);
+		}
+	}
+
+	var BANNER_ID = 'bb-export-banner';
+
+	function showBanner(state, detail) {
+		try {
+			if (!document.body) return;
+
+			var el = document.getElementById(BANNER_ID);
+			if (!el) {
+				el = document.createElement('div');
+				el.id = BANNER_ID;
+				el.style.cssText = [
+					'position:fixed', 'bottom:0', 'left:0', 'right:0', 'z-index:2147483647',
+					'font:12px/1.4 monospace', 'padding:8px', 'white-space:pre-wrap',
+					'background:#b00020', 'color:#fff', 'border-top:2px solid #ff5252',
+				].join(';');
+				document.body.appendChild(el);
+			}
+			el.style.background = state === 'installed' ? '#1b5e20' : '#b00020';
+			el.textContent =
+				(state === 'installed' ? 'BB-Export: aktif\n' : 'BB-Export: GAGAL\n') +
+				(detail || '') +
+				'\n(klik untuk tutup)';
+			el.onclick = function () { el.remove(); };
+		} catch (e) {
+			// DOM belum siap / tidak ada; abaikan
+		}
+	}
+
+	window.BBExportAndroidPatch.setStatus = setStatus;
 })();

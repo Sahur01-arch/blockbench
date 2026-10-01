@@ -19,9 +19,52 @@
 (function () {
 	'use strict';
 
-	// Plugin Capacitor di-register oleh native bridge (atau oleh
-	// <script src="capacitor.js"> kalau fallback web). Lokasinya beda-beda
-	// tergantung versi, jadi ambil dari mana saja yang ada.
+	// ---------------------------------------------------------------
+	// Plugin Capacitor: TEMUAN PENTING
+	// ---------------------------------------------------------------
+	// Di Capacitor 6, plugin JS yang di-inject native (JSExport.getPluginJS)
+	// HANYA menghasilkan fungsi-fungsi plugin:
+	//
+	//   window.Capacitor.Plugins['Filesystem'].writeFile(...)
+	//   window.Capacitor.Plugins['Share'].share(...)
+	//
+	// Enum seperti `Directory` dan `Encoding` TIDAK ikut, karena keduanya
+	// hanya ada di definitions.js / plugin.js yang di-bundle aplikasi web —
+	// dan Capacitor tidak menyuntik file itu ke native bridge.
+	//
+	// Dulu bridge ini menulis `const { Directory, Encoding } = Filesystem;`.
+	// Hasilnya: Directory = undefined, jadi `Directory.Cache` meledak jadi
+	// TypeError di dalam saveFile() — tanpa pernah sampai ke UI.
+	//
+	// Kita declare manual di sini. Nilai WAJIB sama persis dengan enum resmi
+	// (@capacitor/filesystem), karena Capacitor mencocokkan string-nya di sisi
+	// native. Lihat node_modules/@capacitor/filesystem/dist/esm/definitions.js.
+	const Directory = {
+		Documents: 'DOCUMENTS',
+		Data: 'DATA',
+		Library: 'LIBRARY',
+		Cache: 'CACHE',
+		External: 'EXTERNAL',
+		ExternalStorage: 'EXTERNAL_STORAGE',
+	};
+
+	// CATATAN PENTING soal Encoding:
+	// Android hanya menerima tiga nilai: 'utf8' | 'utf16' | 'ascii'
+	// (lihat Filesystem.java#getEncoding). Nilai lain membuat plugin
+	// menolak request dengan "Unsupported encoding provided".
+	//
+	// Untuk data BINARY kita TIDAK mengirim 'base64' — kitaqdmengirim
+	// `encoding: undefined`, yang membuat sisi native masuk cabang
+	// Base64.decode() (lihat Filesystem.java#saveFile). Jadi Base64 di sini
+	// hanya penanda internal, bukan nilai yang dikirim ke native.
+	const Encoding = {
+		UTF8: 'utf8',
+		UTF16: 'utf16',
+		ASCII: 'ascii',
+		// Penanda internal saja, TIDAK pernah dikirim ke native.
+		Base64: 'base64',
+	};
+
 	function getPlugin(name) {
 		const candidates = [
 			window.Capacitor?.Plugins?.[name],
@@ -44,10 +87,25 @@
 			'[BB-Bridge] Plugin @capacitor/filesystem / @capacitor/share belum termuat. ' +
 			'Jalankan `npx cap sync android` lalu build ulang.'
 		);
+		// Tampilkan di layar. Kegagalan plugin sebelumnya hanya terlihat di
+		// logcat, sehingga gejalanya "tidak terjadi apa-apa" tanpa petunjuk.
+		try {
+			var div = document.createElement('div');
+			div.style.cssText = [
+				'position:fixed', 'bottom:0', 'left:0', 'right:0', 'z-index:2147483647',
+				'font:12px/1.4 monospace', 'padding:8px', 'background:#b00020',
+				'color:#fff', 'border-top:2px solid #ff5252',
+			].join(';');
+			div.textContent =
+				'BB-Bridge GAGAL: plugin Capacitor tidak termuat.' +
+				'\nFilesystem: ' + (Filesystem ? 'ada' : 'HILANG') +
+				' | Share: ' + (Share ? 'ada' : 'HILANG') +
+				'\nExport tidak akan berfungsi. (klik untuk tutup)';
+			div.onclick = function () { div.remove(); };
+			document.body.appendChild(div);
+		} catch (e) { /* abaikan */ }
 		return;
 	}
-
-	const { Directory, Encoding } = Filesystem;
 
 	// -----------------------------------------------------------------
 	// 1. FILE SAVE / EXPORT
@@ -140,7 +198,11 @@
 			const write = await Filesystem.writeFile({
 				path: EXPORT_DIR + '/' + filename,
 				data: payload.data,
-				encoding: payload.encoding,
+				// Untuk data binary kita kirim `undefined`, bukan 'base64'.
+				// Plugin Android hanya menerima utf8/utf16/ascii; saat
+				// encoding undefined, sisi native otomatis memakai
+				// Base64.decode() (Filesystem.java#saveFile).
+				encoding: payload.encoding === Encoding.Base64 ? undefined : payload.encoding,
 				directory: Directory.Cache,
 				recursive: true,
 			});

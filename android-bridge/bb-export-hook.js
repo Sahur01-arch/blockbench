@@ -42,8 +42,6 @@
 	var MAX = 150; // 150 x 100ms = 15 detik, cukup untuk modul 8MB di WebView lambat
 
 	function poll() {
-		// Kalau bundle sudah expose Blockbench tapi export belum patch,
-		// installer() di file patch akan berhasil sekarang.
 		if (attempt()) {
 			console.log('[BB-Export] Patch export terpasang.');
 			return;
@@ -52,11 +50,14 @@
 		if (++attempts < MAX) {
 			setTimeout(poll, 100);
 		} else {
-			console.error(
-				'[BB-Export] Patch export GAGAL dipasang setelah 15 detik. ' +
-				'Blockbench.export tidak ditemukan. Export akan fallback ke ' +
-				'saveAs() yang di WebView Android gagal senyap.'
-			);
+			var msg =
+				'Blockbench.export tidak ditemukan setelah 15 detik. ' +
+				'Export akan fallback ke saveAs() yang gagal senyap.';
+			console.error('[BB-Export] Patch export GAGAL: ' + msg);
+			// Tampilkan di layar supaya user tidak perlu logcat untuk tahu.
+			if (window.BBExportAndroidPatch && window.BBExportAndroidPatch.setStatus) {
+				window.BBExportAndroidPatch.setStatus('failed', msg);
+			}
 		}
 	}
 

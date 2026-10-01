@@ -89,13 +89,24 @@ function makeEnv(opts = {}) {
 	sandbox.self = sandbox;
 
 	sandbox.Capacitor = { Plugins: {} };
+	// PENTING: tirukan shape ASLI runtime Capacitor 6 (JSExport.getPluginJS).
+	// Plugin hanya berisi fungsi — TIDAK ada enum Directory/Encoding. Kalau
+	// test ini挂了 enum di atas, dia akan menutupi bug yang sebenarnya.
 	sandbox.CapacitorPlugins = {
 		Filesystem: {
-			Directory: { Cache: 'CACHE', Data: 'DATA' },
-			Encoding: { UTF8: 'utf8', Base64: 'base64' },
 			writeFile: async ({ path, data, encoding }) => {
 				if (opts.failWrite) throw new Error('disk full');
-				storage.set(path, { data, encoding });
+				// Direktori diterima sebagai string biasa oleh native bridge.
+				if (typeof path !== 'string') throw new Error('path harus string');
+				// Tirukan FilesystemPlugin.java: encoding WAJIB salah satu dari
+				// utf8 | utf16 | ascii, atau undefined untuk mode base64.
+				if (encoding != null && !['utf8', 'utf16', 'ascii'].includes(encoding)) {
+					throw new Error('Unsupported encoding provided: ' + encoding);
+				}
+				if (encoding === undefined && typeof data !== 'string') {
+					throw new Error('mode base64 butuh data string');
+				}
+				storage.set(path, { data, encoding: encoding === undefined ? 'BASE64_NATIVE' : encoding });
 				return { uri: 'file:///data/user/0/app/cache/' + path };
 			},
 		},
@@ -232,6 +243,25 @@ console.log('\n=== 6. bridge: nama file dapat ekstensi ===');
 	check('file tersimpan di exports/', keys.length === 1 && keys[0] === 'exports/my_model.geo.json', keys);
 }
 
+console.log('\n=== 6b. REGRESI: enum Directory tidak diambil dari plugin ===');
+{
+	// Bug asli: bridge menulis `const { Directory, Encoding } = Filesystem`.
+	// Di runtime Capacitor 6, plugin object TIDAK punya enum itu, jadi
+	// Directory = undefined -> `Directory.Cache` jadi TypeError.
+	// Test ini memaksa test lain TIDAK diam-diam menyamarkan bug tersebut.
+	const { sandbox } = makeEnv();
+	run(sandbox, BRIDGE);
+
+	const capPlugin = sandbox.CapacitorPlugins.Filesystem;
+	check('plugin tidak punya Directory (ciri runtime asli)', capPlugin.Directory === undefined);
+	check('plugin tidak punya Encoding (ciri runtime asli)', capPlugin.Encoding === undefined);
+
+	// Kalau bridge masih salah ambil enum, pemanggilan ini harus gagal.
+	// Kalau bridge sudah benar, dia harus bisa tulis file.
+	const res = await sandbox.BBBridge.saveFile('enumcheck.bbmodel', '{}');
+	check('saveFile tetap jalan tanpa enum dari plugin', res.success === true, res.error && res.error.message);
+}
+
 console.log('\n=== 7. bridge: konten string (utf8) ===');
 {
 	const { sandbox, storage } = makeEnv();
@@ -250,9 +280,10 @@ console.log('\n=== 8. bridge: Blob -> base64 ===');
 	const blob = new FakeBlob(['PNG'], { type: 'image/png' });
 	const res = await sandbox.BBBridge.saveFile('tex.png', blob);
 	check('sukses', res.success === true);
-	const rec = storage.get('exports/tex.png');
-	check('encoding base64', rec.encoding === 'base64', rec.encoding);
-	check('base64 benar', rec.data === Buffer.from('PNG').toString('base64'), rec.data);
+	// encoding harus undefined (mode base64 native), BUKAN string 'base64'
+	// yang akan ditolak plugin dengan "Unsupported encoding provided".
+	check('encoding undefined (mode base64 native)', storage.get('exports/tex.png').encoding === 'BASE64_NATIVE');
+	check('base64 benar', storage.get('exports/tex.png').data === Buffer.from('PNG').toString('base64'));
 }
 
 console.log('\n=== 9. bridge: ArrayBuffer -> base64 ===');
