@@ -143,12 +143,38 @@
 
 	// Terjemahkan isi file (string / Blob / ArrayBuffer) menjadi bentuk
 	// yang diterima Filesystem.writeFile.
-	function toWritablePayload(content) {
+	//
+	// PENTING: `savetype` harus dipatuhi, kalau tidak file biner jadi rusak.
+	// `downloadFile` (js/file_system.ts:558) membedakan tiga kasus:
+	//
+	//   savetype 'image'  + string  -> string itu DATA URL, tulis sebagai biner
+	//   savetype zip/buffer/binary/image -> tulis sebagai biner (Blob)
+	//   selain itu                   -> tulis sebagai teks UTF8
+	//
+	// Tanpa ini, export PNG menulis teks `data:image/png;base64,...` ke dalam
+	// file .png — file ada tapi tidak bisa dibuka.
+	async function toWritablePayload(content, savetype) {
 		const isText = typeof content === 'string';
 
-		// Encoding UTF8 hanya valid kalau datanya string; untuk data binary
-		// kita konversi ke base64 dulu (lihat cabang di bawah).
 		if (isText) {
+			// Data URL / blob URL harus di-decode jadi biner dulu.
+			// Logika ini meniru `toWritable` di js/util/saf.ts.
+			if (/^(data|blob):/.test(content)) {
+				const res = await fetch(content);
+				const blob = await res.blob();
+				const buf = await blob.arrayBuffer();
+				return { data: arrayBufferToBase64(buf), encoding: Encoding.Base64 };
+			}
+
+			// String lain: teks biasa, KECUALI kalau savetype bilang biner
+			// (mis. `savetype: 'binary'` dengan content string).
+			if (BINARY_SAVETYPES.includes(savetype)) {
+				return {
+					data: arrayBufferToBase64(stringToArrayBuffer(content)),
+					encoding: Encoding.Base64,
+				};
+			}
+
 			return { data: content, encoding: Encoding.UTF8 };
 		}
 
@@ -175,6 +201,18 @@
 		return null;
 	}
 
+	// savetype yang berarti "isi file ini biner, jangan tulis sebagai teks".
+	// Salinan dari daftar di `downloadFile` (js/file_system.ts:564).
+	const BINARY_SAVETYPES = ['zip', 'buffer', 'binary', 'image'];
+
+	function stringToArrayBuffer(str) {
+		const bytes = new Uint8Array(str.length);
+		for (let i = 0; i < str.length; i++) {
+			bytes[i] = str.charCodeAt(i) & 0xff;
+		}
+		return bytes.buffer;
+	}
+
 	function arrayBufferToBase64(buffer) {
 		const bytes = new Uint8Array(buffer);
 		// Chunking supaya tidak blew stack untuk file besar (mis. texture 4K).
@@ -186,11 +224,23 @@
 		return btoa(binary);
 	}
 
-	async function saveFile(filename, content) {
+	/**
+	 * @param filename  nama file (sudah termasuk ekstensi)
+	 * @param content   string | Blob | ArrayBuffer | TypedArray
+	 * @param savetype  'text' | 'zip' | 'buffer' | 'binary' | 'image', atau
+	 *                  fungsi (fileName) => savetype. Menentukan apakah isi
+	 *                  file ditulis sebagai teks atau biner.
+	 */
+	async function saveFile(filename, content, savetype) {
 		try {
 			showNotice('Menyimpan ' + filename + '...');
 
-			const payload = await toWritablePayload(content);
+			// Savetype boleh berupa fungsi; samakan dengan downloadFile.
+			if (typeof savetype === 'function') {
+				savetype = savetype(filename);
+			}
+
+			const payload = await toWritablePayload(content, savetype);
 			if (!payload) {
 				throw new Error('Tipe konten tidak didukung: ' + Object.prototype.toString.call(content));
 			}
@@ -231,9 +281,9 @@
 
 	window.BBBridge = {
 
-		// Dipanggil oleh interceptor di file `bb-export-android-patch.js`
-		// yang menyuntikkan `custom_writer` ke downloadFile() Blockbench.
-		// Signature: (filename, content) => Promise<{success, uri?, error?}>
+		// Dipanggil oleh file `bb-export-android-patch.js`, yang mengambil
+		// alih export di Capacitor (bukan lewat downloadFile/saveAs).
+		// Signature: (filename, content, savetype?) => Promise<{success, uri?, error?}>
 		// `content` bisa string / Blob / ArrayBuffer / TypedArray.
 		saveFile: saveFile,
 
