@@ -286,14 +286,17 @@ if (alreadyWired) {
 //     Android menolak install APK dengan versionCode <= yang sudah terpasang,
 //     jadi versionCode WAJIB naik tiap rilis.
 function patchGradleValue(pattern, replacement, label) {
-	const before = gradle;
-	gradle = gradle.replace(pattern, replacement);
-	if (gradle === before) {
+	// PENTING: bedakan "pola tidak cocok" dari "nilai sudah persis yang
+	// diminta". Kalau kita cuma membandingkan string sebelum/sesudah,
+	// menjalankan ulang dengan nilai yang sama akan dianggap gagal —
+	// padahal file-nya sudah benar.
+	if (!pattern.test(gradle)) {
 		fail(
 			`Tidak menemukan baris ${label} untuk di-patch`,
 			'Cek blok defaultConfig di android/app/build.gradle'
 		);
 	}
+	gradle = gradle.replace(pattern, replacement);
 }
 
 if (versionName) {
